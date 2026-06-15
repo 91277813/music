@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>本地粒子音乐播放器</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui}
+body{
+  width:100vw;height:100vh;overflow:hidden;background:#0a0a18;color:#fff;
+}
+#particleCanvas{
+  position:fixed;top:0;left:0;z-index:1;pointer-events:none;
+}
+.wrap{
+  position:relative;z-index:10;width:min(92%,700px);margin:40px auto;
+  display:grid;grid-template-columns: 300px 1fr;gap:20px;
+}
+/* 歌单列表 */
+.song-list{
+  background:rgba(25,25,50,0.65);backdrop-filter:blur(10px);
+  border:1px solid rgba(120,180,255,0.25);border-radius:16px;padding:16px;
+  height:80vh;overflow-y:auto;
+}
+.song-list h3{
+  text-align:center;margin-bottom:12px;color:#7cf0ff;padding-bottom:8px;border-bottom:1px solid #334;
+}
+.song-item{
+  padding:8px 10px;margin:6px 0;border-radius:8px;cursor:pointer;
+  transition:0.2s;background:rgba(255,255,255,0.05);
+}
+.song-item:hover{background:rgba(100,180,255,0.15)}
+.song-item.active{background:linear-gradient(90deg,#0060dd,#7b2cbf)}
+/* 播放器主面板 */
+.player-main{
+  background:rgba(25,25,50,0.65);backdrop-filter:blur(10px);
+  border:1px solid rgba(120,180,255,0.25);border-radius:16px;padding:30px;
+  height:fit-content;
+}
+.title{text-align:center;font-size:26px;color:#7cf0ff;margin-bottom:20px}
+.song-name{text-align:center;font-size:19px;margin:15px 0 24px;color:#e0f7ff;min-height:26px}
+/* 进度条 */
+.progress-box{width:100%;height:6px;background:rgba(255,255,255,0.12);border-radius:99px;cursor:pointer;margin-bottom:16px}
+.progress-bar{height:100%;width:0%;background:linear-gradient(90deg,#00d4ff,#9b59ff);border-radius:99px}
+.time-row{display:flex;justify-content:space-between;font-size:13px;color:#aaa;margin-bottom:24px}
+/* 控制按钮 */
+.control{display:flex;justify-content:center;gap:18px;align-items:center}
+button{
+  border:none;background:transparent;color:#fff;font-size:30px;
+  width:48px;height:48px;border-radius:50%;cursor:pointer;transition:.2s;
+}
+button:hover{background:rgba(120,200,255,0.2)}
+.play-btn{width:68px;height:68px;background:linear-gradient(135deg,#00bfff,#8a2be2)}
+/* 音量 */
+.volume-area{display:flex;align-items:center;justify-content:center;margin-top:22px;gap:10px}
+#volume{width:130px}
+.tip{text-align:center;margin-top:16px;color:#9cf;font-size:14px}
+/* 滚动条美化 */
+.song-list::-webkit-scrollbar{width:4px}
+.song-list::-webkit-scrollbar-thumb{background:#448;border-radius:4px}
+</style>
+</head>
+<body>
+<canvas id="particleCanvas"></canvas>
+<div class="wrap">
+  <div class="song-list">
+    <h3>歌曲列表</h3>
+    <div id="listBox"></div>
+  </div>
+  <div class="player-main">
+    <h2 class="title">粒子本地播放器</h2>
+    <div class="song-name" id="songText">加载中...</div>
+    <div class="progress-box" id="progressWrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="time-row">
+      <span id="curTime">00:00</span>
+      <span id="totalTime">00:00</span>
+    </div>
+    <div class="control">
+      <button id="prev">⏮</button>
+      <button class="play-btn" id="playBtn">▶</button>
+      <button id="next">⏭</button>
+    </div>
+    <div class="volume-area">
+      <span>音量</span>
+      <input type="range" id="volume" min="0" max="1" step="0.01" value="0.7">
+    </div>
+    <div class="tip" id="tipText">扫描本地歌曲...</div>
+  </div>
+</div>
+<audio id="audio">
+
+<script>
+// 粒子特效
+const canvas = document.getElementById('particleCanvas');
+const ctx = canvas.getContext('2d');
+let w,h,mouseX=0,mouseY=0,particles=[];
+function resize(){w=canvas.width=innerWidth;h=canvas.height=innerHeight}
+resize();window.onresize=resize;
+window.onmousemove=e=>{mouseX=e.clientX;mouseY=e.clientY};
+class Particle{
+  constructor(){
+    this.x=Math.random()*w;this.y=Math.random()*h;
+    this.r=Math.random()*2+0.4;
+    this.vx=(Math.random()-0.5)*1.1;this.vy=(Math.random()-0.5)*1.1;
+    this.color=`rgba(${60+Math.random()*190},${150+Math.random()*100},255,${Math.random()*0.5+0.2})`
+  }
+  update(){
+    this.x+=this.vx;this.y+=this.vy;
+    if(this.x<0||this.x>w)this.vx*=-1;
+    if(this.y<0||this.y>h)this.vy*=-1;
+    const dx=mouseX-this.x,dy=mouseY-this.y,d=Math.hypot(dx,dy);
+    if(d<130){this.x-=dx*0.01;this.y-=dy*0.01}
+  }
+  draw(){ctx.beginPath();ctx.arc(this.x,this.y,this.r,0,Math.PI*2);ctx.fillStyle=this.color;ctx.fill()}
+}
+function initParticle(){particles=[];for(let i=0;i<200;i++)particles.push(new Particle())}
+initParticle();
+function loop(){
+  ctx.clearRect(0,0,w,h);
+  particles.forEach(p=>{p.update();p.draw()});
+  for(let a=0;a<particles.length;a++){
+    for(let b=a+1;b<particles.length;b++){
+      const p1=particles[a],p2=particles[b];
+      const d=Math.hypot(p1.x-p2.x,p1.y-p2.y);
+      if(d<75){
+        ctx.beginPath();
+        ctx.strokeStyle=`rgba(110,200,255,${0.28-d/270})`;
+        ctx.lineWidth=0.5;
+        ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();
+      }
+    }
+  }
+  requestAnimationFrame(loop)
+}
+loop();
+
+// ============播放器逻辑============
+const audio=document.getElementById('audio');
+const songText=document.getElementById('songText');
+const tipText=document.getElementById('tipText');
+const playBtn=document.getElementById('playBtn');
+const prevBtn=document.getElementById('prev');
+const nextBtn=document.getElementById('next');
+const progressWrap=document.getElementById('progressWrap');
+const progressBar=document.getElementById('progressBar');
+const curTimeDom=document.getElementById('curTime');
+const totalTimeDom=document.getElementById('totalTime');
+const volumeInput=document.getElementById('volume');
+const listBox=document.getElementById('listBox');
+
+let songNameMap={}; // key:数字序号 value:歌名
+let validList=[]; // 有效存在的歌曲序号数组 [1,2,4,5...]
+let currentIdx=0;
+
+// 后台持续播放
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden && audio.paused && audio.src) audio.play().catch(()=>{})
+});
+
+// 时间格式化
+function fmtTime(s){
+  if(isNaN(s)) return "00:00";
+  const m=Math.floor(s/60),sec=Math.floor(s%60);
+  return String(m).padStart(2,'0')+":"+String(sec).padStart(2,'0');
+}
+
+// 1.读取本地78.txt
+async function loadTxt(){
+  try{
+    const res=await fetch("78.txt");
+    if(!res.ok) throw "";
+    const text=await res.text();
+    const arr=text.split(":");
+    songNameMap={};
+    arr.forEach(item=>{
+      const match=item.match(/^(\d+)\.(.+)/);
+      if(match){
+        const num=Number(match[1]);
+        const name=match[2].trim();
+        songNameMap[num]=name;
+      }
+    })
+    tipText.textContent="成功读取78.txt歌单";
+  }catch{
+    tipText.textContent="未检测到78.txt，将使用数字作为歌名";
+  }
+}
+
+// 2.预扫描1~999.mp4，检测本地文件是否存在
+async function scanAllMedia(){
+  validList=[];
+  for(let n=1;n<=999;n++){
+    try{
+      const res=await fetch(`${n}.mp4`,{method:"HEAD"});
+      if(res.ok) validList.push(n);
+    }catch{}
+  }
+  renderList();
+  if(validList.length>0) loadMusic(0);
+  else tipText.textContent="目录下无1~999.mp4文件";
+}
+
+// 渲染侧边歌曲列表
+function renderList(){
+  listBox.innerHTML="";
+  validList.forEach((num,idx)=>{
+    const div=document.createElement('div');
+    div.className="song-item";
+    div.dataset.idx=idx;
+    const name=songNameMap[num] ?? `${num}.mp4`;
+    div.innerText=name;
+    div.onclick=()=>loadMusic(idx);
+    listBox.appendChild(div);
+  })
+}
+
+// 切换高亮选中歌曲
+function activeListItem(){
+  document.querySelectorAll('.song-item').forEach(el=>{
+    el.classList.remove('active');
+  })
+  const target=document.querySelector(`.song-item[data-idx="${currentIdx}"]`);
+  if(target) target.classList.add('active');
+}
+
+// 加载指定下标歌曲，不存在自动跳过
+async function loadMusic(listIndex){
+  if(validList.length===0) return;
+  // 边界循环
+  if(listIndex<0) listIndex=validList.length-1;
+  if(listIndex>=validList.length) listIndex=0;
+  currentIdx=listIndex;
+  const fileNum=validList[currentIdx];
+  const url=`${fileNum}.mp4`;
+  const showName=songNameMap[fileNum] ?? `${fileNum}.mp4`;
+
+  songText.textContent=`加载: ${showName}`;
+  tipText.textContent="正在加载媒体文件";
+  activeListItem();
+
+  try{
+    const check=await fetch(url,{method:"HEAD"});
+    if(!check.ok) throw "missing";
+    audio.src=url;
+    songText.textContent=showName;
+    tipText.textContent="播放中";
+    audio.play().catch(e=>console.log("播放限制",e));
+    playBtn.textContent="⏸";
+  }catch{
+    tipText.textContent=`${fileNum}.mp4丢失，自动下一首`;
+    setTimeout(()=>loadMusic(currentIdx+1),600);
+  }
+}
+
+// 播放暂停
+playBtn.onclick=()=>{
+  if(audio.paused){
+    audio.play().catch(()=>{});
+    playBtn.textContent="⏸";
+  }else{
+    audio.pause();
+    playBtn.textContent="▶";
+  }
+}
+prevBtn.onclick=()=>loadMusic(currentIdx-1);
+nextBtn.onclick=()=>loadMusic(currentIdx+1);
+
+// 进度条点击跳转
+progressWrap.onclick=e=>{
+  if(!audio.duration) return;
+  const rect=progressWrap.getBoundingClientRect();
+  const rate=(e.clientX-rect.left)/rect.width;
+  audio.currentTime=audio.duration*rate;
+}
+
+// 音量
+volumeInput.oninput=()=>audio.volume=volumeInput.value;
+audio.volume=0.7;
+
+// 进度更新
+audio.ontimeupdate=()=>{
+  const pct=((audio.currentTime/audio.duration)*100)||0;
+  progressBar.style.width=pct+"%";
+  curTimeDom.innerText=fmtTime(audio.currentTime);
+}
+audio.onloadedmetadata=()=>totalTimeDom.innerText=fmtTime(audio.duration);
+
+// 播放结束自动下一首
+audio.onended=()=>loadMusic(currentIdx+1);
+// 媒体加载失败跳过
+audio.onerror=()=>{
+  tipText.textContent="媒体加载失败，切换下一首";
+  setTimeout(()=>loadMusic(currentIdx+1),600);
+}
+
+// 程序启动
+(async ()=>{
+  await loadTxt();
+  await scanAllMedia();
+})();
+</script>
+</body>
+</html>
